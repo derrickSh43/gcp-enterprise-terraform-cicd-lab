@@ -42,7 +42,7 @@ terraform-sa-key.json
 .aws/
 .ssh/
 
-# Private keys and key bundles (public certificates may be committed)
+# Private keys, key bundles, and generated certificates
 *.key
 *.pem
 *.p12
@@ -66,3 +66,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+*.crt
+*.cer
+*.der
+*.csr
