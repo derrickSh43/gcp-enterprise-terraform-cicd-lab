@@ -1,0 +1,67 @@
+# Terraform local caches, state, saved plans, and logs
+.terraform/
+.terraform.d/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+tfplan
+tfplan.*
+plan.out
+crash.log
+crash.*.log
+.terraform.tfstate.lock.info
+
+# Local Terraform variable files can contain secrets.
+# Publish sanitized examples as terraform.tfvars.example instead.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+
+# Local Terraform overrides and CLI credentials
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.tfrc
+credentials.tfrc.json
+
+# Cloud service account keys and credential files
+terraform-sa-key.json
+*-sa-key.json
+*service-account*.json
+*service_account*.json
+*credentials*.json
+*secret*.json
+.gcp/
+.gcloud/
+.aws/
+.ssh/
+
+# Private keys and key bundles (public certificates may be committed)
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+secrets/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.venv/
+venv/

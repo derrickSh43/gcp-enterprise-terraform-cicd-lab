@@ -1,0 +1,59 @@
+
+name: GCP Terraform CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform-plan:
+    name: Terraform Validate and Plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_project_id: tester-159753
+      TF_VAR_region: us-central1
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: tester-159753
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: github-terraform-deployer@tester-159753.iam.gserviceaccount.com
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Restore Lab TLS Certificate
+        env:
+          TLS_CERT: ${{ secrets.LAB_TLS_CERT }}
+          TLS_KEY: ${{ secrets.LAB_TLS_KEY }}
+        run: |
+          mkdir -p certs
+          printf '%s' "$TLS_CERT" > certs/server.crt
+          printf '%s' "$TLS_KEY" > certs/server.key
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -input=false -no-color
