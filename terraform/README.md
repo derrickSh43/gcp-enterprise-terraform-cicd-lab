@@ -1,8 +1,16 @@
 # Docker to GCP Infrastructure Migration
 
-This lab takes a local Docker environment representing an on-premises network and recreates its architecture in Google Cloud using Terraform.
+This project uses a local Docker environment as a simulated on-premises infrastructure baseline, then redesigns that environment using modern Google Cloud services and Terraform.
 
-The original environment consists of two Docker networks, an HTTP server, a client, and a Linux routing appliance connecting the networks. The GCP implementation replaces those components with cloud networking, managed compute, and load balancing services.
+The original environment consists of two isolated Docker networks, a Linux routing appliance, an HTTP server, and a client communicating across the networks.
+
+Rather than recreating those components individually in GCP, the migration focuses on preserving their core functionality while adopting a cloud-native architecture.
+
+The GCP design uses Network Connectivity Center (NCC) for inter-VPC connectivity, regional Managed Instance Groups for application hosting, HTTPS load balancing, and Cloud Armor for application protection.
+
+Terraform and GitHub Actions manage infrastructure provisioning and automation, with GCS providing remote state storage and Workload Identity Federation handling deployment authentication.
+
+The diagrams below show the original Docker environment, the modernized GCP architecture, and the technical choices behind the design.
 
 ## 1. Original Environment — Local Docker
 
