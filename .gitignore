@@ -30,6 +30,7 @@ terraform.rc
 credentials.tfrc.json
 
 # Cloud service account keys and credential files
+gha-creds-*.json
 terraform-sa-key.json
 *-sa-key.json
 *service-account*.json
