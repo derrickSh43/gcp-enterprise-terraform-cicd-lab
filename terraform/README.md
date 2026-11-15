@@ -1,101 +1,157 @@
-# GCP Terraform lab and NCC connectivity test
+# Docker to GCP Infrastructure Migration
 
-This directory deploys two VPCs joined by Network Connectivity Center (NCC), an NGINX application MIG behind an HTTPS load balancer, a standalone VM A (`app-vm`) in VPC A, and an `e2-micro` VM B (`test-vm-b`) in VPC B. VM A retains its configured `vm_machine_type`.
+This lab takes a local Docker environment representing an on-premises network and recreates its architecture in Google Cloud using Terraform.
 
-Both test VMs have private IPs only. SSH uses IAP and OS Login; only TCP 22 from `35.235.240.0/20` reaches instances tagged `ncc-test`. Inter-VPC ICMP ingress permits private-IP pings in both directions. The application MIG is separate from these test endpoints.
+The original environment consists of two Docker networks, an HTTP server, a client, and a Linux routing appliance connecting the networks. The GCP implementation replaces those components with cloud networking, managed compute, and load balancing services.
 
-## Configure and deploy
+## 1. Original Environment — Local Docker
 
-Environment-specific identifiers are supplied through GitHub Actions variables or ignored local files. The public source has no project ID, deployment service account email, state-bucket name, or Workload Identity provider identifier embedded in it. This separates configuration from source; repository variables are not a secret store, and resource identifiers can still appear in Terraform plan logs.
+The Docker environment represents our on-premises infrastructure.
 
-### GitHub Actions
+Two isolated Docker networks are connected through a Linux router. An HTTP server sits on one network, while a client on the other network communicates with it through the router.
 
-Configure these repository variables with GitHub CLI (`gh variable set NAME --body VALUE --repo OWNER/REPOSITORY`):
+```mermaid
+flowchart LR
+    subgraph NET_A["Docker Network A"]
+        CLIENT["Client Container"]
+    end
 
-| Variable | Value |
-| --- | --- |
-| `GCP_PROJECT_ID` | Target project ID |
-| `GCP_REGION` | Compute region |
-| `GCP_ZONE` | Test VM zone within the region |
-| `GCP_SERVICE_ACCOUNT` | Deployment service account email |
-| `GCP_WIF_PROVIDER` | Full Workload Identity provider resource name |
-| `TF_STATE_BUCKET` | Existing GCS state bucket |
-| `TF_STATE_PREFIX` | Existing state object prefix |
-| `GCP_SSL_CERTIFICATE_NAME` | Existing global Compute Engine SSL certificate name |
+    ROUTER["Linux Router<br/>IP Forwarding"]
 
-The manual workflow authenticates with Workload Identity, initializes the partial GCS backend with the configured bucket/prefix, validates Terraform, and runs a plan. It does not apply changes. The existing certificate is looked up by name; neither the workflow nor Terraform reads its private key. No certificate restoration step or TLS GitHub secrets are needed by this workflow.
+    subgraph NET_B["Docker Network B"]
+        SERVER["HTTP Server Container"]
+    end
 
-The backend bucket and certificate must exist before running the workflow. Keep the original bucket and prefix when using existing state. Enable Compute Engine, IAM, and Network Connectivity APIs; Terraform enables IAP and OS Login APIs. The deployment identity needs permissions to manage the resources, enable those APIs, manage the IAM grants, read the certificate, and read/write the GCS state. Workload Identity must trust this repository and permit impersonation of the deployment service account.
-
-### Local PowerShell
-
-1. Set `project_id`, `region`, `zone`, `state_bucket_name`, and `ssl_certificate_name` in ignored `terraform/terraform.tfvars`. Keep the rest of your environment overrides there as needed. For SSH access, set your real login:
-
-   ```hcl
-   iap_ssh_members = ["user:you@example.com"]
-   ```
-
-   An empty set grants no new SSH access. Groups use `group:team@example.com`.
-
-2. Keep `bucket` and `prefix` in ignored `terraform/backend.local.tfbackend`. These settings are separate from Terraform input variables. The local file has been prepared with the existing backend values. For a new checkout, create it with your own bucket and state prefix:
-
-   ```hcl
-   bucket = "YOUR_EXISTING_STATE_BUCKET"
-   prefix = "YOUR_STATE_PREFIX"
-   ```
-
-3. Authenticate locally using Application Default Credentials (`gcloud.cmd auth application-default login`) or set `GOOGLE_APPLICATION_CREDENTIALS` to the path of your ignored local credentials file. Authenticate gcloud separately as the identity in `iap_ssh_members` using `gcloud.cmd auth login` for SSH and route checks. GitHub Actions supplies its own credentials through Workload Identity.
-
-4. From the repository root, initialize using the local backend file and review the plan:
-
-   ```powershell
-   terraform -chdir=terraform init -reconfigure "-backend-config=backend.local.tfbackend"
-   terraform -chdir=terraform fmt -check
-   terraform -chdir=terraform validate
-   terraform -chdir=terraform plan -out=tfplan
-   # Apply only after reviewing the plan:
-   terraform -chdir=terraform apply tfplan
-   ```
-
-The test users receive instance-scoped OS Login without sudo, IAP SSH limited to port 22, Compute Viewer, NCC Hub Viewer, and Service Account User on the attached application service account. Cross-organization OS Login users additionally need `roles/compute.osLoginExternalUser` from an organization administrator.
-
-VM A uses private-only networking and OS Login. Allow time for VM startup, IAM propagation, and NCC convergence. These private-only test VMs have no general internet egress/NAT; use the default Debian cloud image with SSH, OS Login, and ping already available.
-
-## Run the connectivity and route checks
-
-From the repository root in PowerShell:
-
-```powershell
-./scripts/test-ncc.ps1
+    CLIENT <--> ROUTER
+    ROUTER <--> SERVER
 ```
 
-If Windows blocks `.ps1` execution, you can run this local script with a process-only policy override (no persistent policy change):
+This gives us a small environment where we can work with network isolation, routing, and application connectivity before moving the architecture into GCP.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-ncc.ps1
+## 2. Migrated Architecture — Google Cloud
+
+In GCP, we recreate the two-network layout using custom VPCs.
+
+Network Connectivity Center (NCC) connects the VPCs using a hub-and-spoke design. Firewall rules control traffic between networks.
+
+The application side of the architecture uses a regional Managed Instance Group running NGINX, with traffic distributed through an external HTTPS load balancer.
+
+```mermaid
+flowchart TB
+    INTERNET["Internet Client"]
+    LB["Global HTTPS Load Balancer<br/>Port 443"]
+    BACKEND["Backend Service<br/>Port 8080"]
+    ARMOR["Cloud Armor WAF"]
+
+    subgraph VPC_A["VPC A — 10.231.0.0/24"]
+        MIG["Regional MIG<br/>2 NGINX Instances"]
+        VM["Standalone Test VM"]
+    end
+
+    subgraph NCC["Network Connectivity Center"]
+        SPA["Spoke A"]
+        HUB["NCC Hub"]
+        SPB["Spoke B"]
+        SPA <--> HUB
+        HUB <--> SPB
+    end
+
+    subgraph VPC_B["VPC B — 10.230.0.0/24"]
+        NETWORK_B["Secondary Network"]
+    end
+
+    INTERNET --> LB --> BACKEND --> MIG
+    ARMOR -.-> BACKEND
+    VM --- SPA
+    SPA --- VPC_A
+    SPB --- VPC_B
 ```
 
-The script reads deployed addresses from Terraform outputs, lists effective NCC routes for the configured region, requires active primary-subnet routes for both CIDRs, and runs four pings from each test VM to the other's private IP over IAP SSH. It stops on failed commands or missing routes. It does not apply or modify infrastructure. gcloud might prompt to create your local SSH key on the first connection.
+## 3. Mapping Docker Components to GCP
 
-For manual terminal access and checks, run:
+| Local Docker environment | GCP implementation |
+|---|---|
+| Docker Network A | Custom VPC A |
+| Docker Network B | Custom VPC B |
+| Linux routing appliance | Network Connectivity Center hub and spokes |
+| HTTP server container | NGINX instances managed through a MIG |
+| Client container | Compute Engine VM for connectivity testing |
+| Docker network isolation | VPC isolation and firewall rules |
+| Container-to-container HTTP | Private VPC communication and load-balanced HTTP |
+| Local application access | Global HTTPS load balancer with Cloud Armor |
 
-```powershell
-$test = terraform -chdir=terraform output -json connectivity_test | ConvertFrom-Json
+The components aren't necessarily one-to-one replacements. Some Docker functions are handled by several GCP services, while other parts of the architecture change to use cloud-managed capabilities.
 
-# Open VM A's terminal. Inside it, ping VM B's private_ip from the output.
-gcloud.cmd compute ssh $test.vm_a.name "--project=$($test.project_id)" "--zone=$($test.vm_a.zone)" --tunnel-through-iap
+## 4. Architecture Decisions and Trade-offs
 
-# Open VM B's terminal. Inside it, ping VM A's private_ip from the output.
-gcloud.cmd compute ssh $test.vm_b.name "--project=$($test.project_id)" "--zone=$($test.vm_b.zone)" --tunnel-through-iap
+### Linux Router vs. Network Connectivity Center
 
-# Check hub/spoke state and the effective regional routes.
-gcloud.cmd network-connectivity hubs list-spokes "--hub=$($test.hub_name)" "--project=$($test.project_id)"
-gcloud.cmd network-connectivity hubs route-tables list "--hub=$($test.hub_name)" "--project=$($test.project_id)"
-gcloud.cmd network-connectivity hubs route-tables routes list "--hub=$($test.hub_name)" "--route_table=$($test.route_table)" "--effective-location=$($test.region)" "--project=$($test.project_id)" --format=json
+The Docker environment uses a Linux routing appliance to connect two networks.
+
+In GCP, we selected NCC to establish connectivity through a managed hub-and-spoke architecture.
+
+VPC Peering would have been a simpler choice for two networks. NCC was selected because we wanted to work with a hub-and-spoke design and understand how route exchange operates between VPC spokes.
+
+We also no longer manage the underlying Linux router ourselves.
+
+### Docker HTTP Server vs. Managed Instance Group
+
+The original HTTP server runs in a Docker container.
+
+For the GCP implementation, we use NGINX running on Compute Engine instances created from a shared instance template.
+
+The regional MIG maintains two instances and provides autohealing using health checks.
+
+This changes how the application is hosted: rather than managing a single container, we're using managed VM infrastructure. The trade-off is additional infrastructure configuration and compute cost.
+
+### Network Access vs. Load Balancing
+
+In Docker, the client accesses the server across the local routed networks.
+
+In GCP, the application also has an external entry point through a global HTTPS Application Load Balancer.
+
+The load balancer forwards requests to the MIG backend on port 8080. Cloud Armor adds application-layer traffic filtering.
+
+This is an extension of the original architecture rather than a direct replacement for the local router.
+
+### Firewall Controls
+
+The Docker environment demonstrates traffic flow between isolated networks through the Linux router.
+
+GCP uses VPC firewall rules to control permitted traffic. We also configured ingress rules for Google's load balancer and health check systems.
+
+Routing determines how traffic reaches another network; firewall rules determine whether that traffic is allowed.
+
+### TLS Certificate
+
+The lab uses a self-signed certificate rather than a purchased domain and publicly trusted certificate.
+
+We originally managed the certificate through Terraform. After security scanning identified the risk of storing the private key in Terraform state, we moved certificate creation outside Terraform and referenced the existing GCP certificate through a data source.
+
+## 5. Infrastructure Management
+
+The GCP infrastructure is defined using Terraform, with resources separated into logical files for networking, NCC, compute, firewall rules, security, and load balancing.
+
+Terraform state is stored in a dedicated GCS bucket with versioning and restricted access.
+
+We also configured GitHub Actions to run Terraform using Workload Identity Federation rather than storing a long-lived GCP service account key in GitHub.
+
+```mermaid
+flowchart LR
+    GIT["GitHub Repository"]
+    ACTIONS["GitHub Actions"]
+    WIF["Workload Identity Federation"]
+    TF["Terraform"]
+    STATE["GCS State Bucket"]
+    GCP["GCP Infrastructure"]
+
+    GIT --> ACTIONS
+    ACTIONS --> WIF
+    WIF --> TF
+    TF <--> STATE
+    TF -.-> GCP
 ```
 
-Use `gcloud` in place of `gcloud.cmd` on Linux/macOS. With the default CIDRs, expect active `VPC_PRIMARY_SUBNET` routes for `10.231.0.0/24` and `10.230.0.0/24` through their respective VPC spokes in `default-route-table`. Check both spokes are active and that their `include_export_ranges` match the subnet CIDRs if a route is missing. Ping success verifies the end-to-end data path; route visibility alone does not verify firewall access.
+The GitHub Actions workflow handles Terraform formatting, validation, and planning. Deployment through the pipeline is kept separate from those checks.
 
-The existing state bucket and certificate are managed outside this configuration. Keep the state bucket available while managing the deployment.
-
-References: [IAP TCP forwarding](https://docs.cloud.google.com/iap/docs/using-tcp-forwarding), [OS Login setup](https://docs.cloud.google.com/compute/docs/oslogin/set-up-oslogin), [NCC effective routes](https://docs.cloud.google.com/network-connectivity/docs/network-connectivity-center/how-to/vpc-view-hub-route-table).
+The Docker environment provides the original network and application model. The GCP configuration shows how that same basic layout can be recreated using VPCs, managed networking, compute services, and infrastructure automation.
