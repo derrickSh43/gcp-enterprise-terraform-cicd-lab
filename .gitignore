@@ -70,3 +70,7 @@ venv/
 *.cer
 *.der
 *.csr
+
+# Local environment-specific backend configuration
+*.tfbackend
+!*.tfbackend.example

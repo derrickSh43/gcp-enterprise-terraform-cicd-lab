@@ -30,10 +30,8 @@ resource "google_compute_url_map" "app_routes" {
   default_service = google_compute_backend_service.app_backend.id
 }
 
-resource "google_compute_ssl_certificate" "lab_tls" {
-  name        = "${var.name_prefix}lab-tls-cert"
-  private_key = file("${path.module}/${var.tls_private_key_file}")
-  certificate = file("${path.module}/${var.tls_certificate_file}")
+data "google_compute_ssl_certificate" "lab_tls" {
+  name = var.ssl_certificate_name
 }
 
 resource "google_compute_target_https_proxy" "app_https_proxy" {
@@ -41,7 +39,7 @@ resource "google_compute_target_https_proxy" "app_https_proxy" {
   url_map = google_compute_url_map.app_routes.id
 
   ssl_certificates = [
-    google_compute_ssl_certificate.lab_tls.id
+    data.google_compute_ssl_certificate.lab_tls.id
   ]
 }
 

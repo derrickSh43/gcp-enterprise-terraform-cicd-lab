@@ -1,19 +1,16 @@
 variable "project_id" {
   description = "Google Cloud project ID."
   type        = string
-  default     = "tester-159753"
 }
 
 variable "region" {
   description = "Google Cloud region for regional resources."
   type        = string
-  default     = "us-central1"
 }
 
 variable "zone" {
   description = "Zone for the standalone VM; must belong to region."
   type        = string
-  default     = "us-central1-a"
 }
 
 variable "name_prefix" {
@@ -200,7 +197,6 @@ variable "vm_startup_script" {
 variable "state_bucket_name" {
   description = "Globally unique name for the Terraform state bucket."
   type        = string
-  default     = "tester-159753-terraform-state"
 }
 
 variable "state_bucket_location" {
@@ -246,5 +242,15 @@ variable "iap_ssh_members" {
   validation {
     condition     = alltrue([for member in var.iap_ssh_members : can(regex("^(user|group):[^@ ]+@[^@ ]+$", member))])
     error_message = "Use IAM identities such as user:you@example.com or group:team@example.com."
+  }
+}
+
+variable "ssl_certificate_name" {
+  description = "Name of an existing global Compute Engine SSL certificate in the configured project."
+  type        = string
+
+  validation {
+    condition     = length(trimspace(var.ssl_certificate_name)) > 0
+    error_message = "Provide the name of an existing SSL certificate."
   }
 }
